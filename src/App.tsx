@@ -24,7 +24,7 @@ import {
   Trash2,
   X
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import { CanvasBoard } from "./CanvasBoard";
 import type {
@@ -118,6 +118,11 @@ function App() {
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [projectEditOpen, setProjectEditOpen] = useState(false);
   const [sectionModalOpen, setSectionModalOpen] = useState(false);
+  const [canvasHistoryInsert, setCanvasHistoryInsert] = useState<{
+    projectId: string;
+    sectionId: string;
+    target?: { itemId: string; position: "before" | "after" };
+  } | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState("");
   const [leftPanelOpen, setLeftPanelOpen] = useState(() => readStoredBoolean("project-rail-open", true));
   const [rightPanelOpen, setRightPanelOpen] = useState(() =>
@@ -232,6 +237,45 @@ function App() {
       setSelectedSectionId("");
       setNotice("섹션이 삭제되었습니다.");
       await reloadProjects(selectedProject.id);
+    });
+  }
+
+  const handleCanvasAddHistoryNode = useCallback(
+    (
+      projectId: string,
+      sectionId: string,
+      target?: { itemId: string; position: "before" | "after" }
+    ) => {
+      setSelectedId(projectId);
+      setSelectedSectionId(sectionId);
+      setCanvasHistoryInsert({ projectId, sectionId, target });
+    },
+    []
+  );
+
+  async function handleCreateHistoryFromCanvas(item: Record<string, unknown>) {
+    if (!canvasHistoryInsert) return;
+    await runMutation(async () => {
+      const payload = {
+        ...item,
+        ...(canvasHistoryInsert.target?.position === "before"
+          ? { insertBeforeId: canvasHistoryInsert.target.itemId }
+          : {}),
+        ...(canvasHistoryInsert.target?.position === "after"
+          ? { insertAfterId: canvasHistoryInsert.target.itemId }
+          : {})
+      };
+
+      await api.createItem(
+        password,
+        canvasHistoryInsert.projectId,
+        canvasHistoryInsert.sectionId,
+        payload
+      );
+      setCanvasHistoryInsert(null);
+      setNotice("이력 노드가 추가되었습니다.");
+      await reloadProjects(canvasHistoryInsert.projectId);
+      setSelectedSectionId(canvasHistoryInsert.sectionId);
     });
   }
 
@@ -372,6 +416,7 @@ function App() {
                     setSelectedId(projectId);
                     setSelectedSectionId(sectionId);
                   }}
+                  onAddHistoryNode={handleCanvasAddHistoryNode}
                 />
               </section>
 
@@ -458,6 +503,17 @@ function App() {
             busy={busy}
             password={password}
             onSubmit={(section) => void handleCreateSection(section)}
+          />
+        </Modal>
+      )}
+
+      {canvasHistoryInsert && (
+        <Modal title={canvasHistoryModalTitle(canvasHistoryInsert.target)} onClose={() => setCanvasHistoryInsert(null)}>
+          <NodeForm
+            busy={busy}
+            submitLabel="노드 추가"
+            onSubmit={(item) => void handleCreateHistoryFromCanvas(item)}
+            onCancel={() => setCanvasHistoryInsert(null)}
           />
         </Modal>
       )}
@@ -1895,6 +1951,12 @@ function formatDate(value: string): string {
     hour: "2-digit",
     minute: "2-digit"
   }).format(new Date(value));
+}
+
+function canvasHistoryModalTitle(target?: { position: "before" | "after" }): string {
+  if (target?.position === "before") return "위에 이력 노드 삽입";
+  if (target?.position === "after") return "아래에 이력 노드 삽입";
+  return "최신 이력 노드 추가";
 }
 
 function readStoredBoolean(key: string, fallback: boolean): boolean {

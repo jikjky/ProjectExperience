@@ -24,6 +24,7 @@ import {
   GitBranch,
   Link2,
   Maximize2,
+  Plus,
   Search,
   Table2
 } from "lucide-react";
@@ -53,6 +54,11 @@ interface CanvasNodeData {
   searchText: string;
   historyIndex?: number;
   historyTotal?: number;
+  onAddHistoryNode?: (
+    projectId: string,
+    sectionId: string,
+    target?: { itemId: string; position: "before" | "after" }
+  ) => void;
 }
 
 interface CanvasBoardProps {
@@ -62,6 +68,11 @@ interface CanvasBoardProps {
   searchQuery: string;
   onSelectProject: (projectId: string) => void;
   onSelectSection: (projectId: string, sectionId: string) => void;
+  onAddHistoryNode: (
+    projectId: string,
+    sectionId: string,
+    target?: { itemId: string; position: "before" | "after" }
+  ) => void;
 }
 
 const nodeTypes = {
@@ -84,7 +95,8 @@ export function CanvasBoard({
   selectedSectionId,
   searchQuery,
   onSelectProject,
-  onSelectSection
+  onSelectSection,
+  onAddHistoryNode
 }: CanvasBoardProps) {
   const initialCanvasStateRef = useRef<CanvasLayoutState>(readCanvasState());
   const savedLayoutRef = useRef<CanvasLayout>(initialCanvasStateRef.current.nodes);
@@ -94,13 +106,19 @@ export function CanvasBoard({
   const saveTimerRef = useRef<number | undefined>(undefined);
   const initialGraph = useMemo(
     () => {
-      const graph = buildGraph(projects, selectedProject, selectedSectionId, searchQuery);
+      const graph = buildGraph(
+        projects,
+        selectedProject,
+        selectedSectionId,
+        searchQuery,
+        onAddHistoryNode
+      );
       return {
         nodes: mergeGraphNodes(graph.nodes, [], savedLayoutRef.current),
         edges: graph.edges
       };
     },
-    [projects, selectedProject, selectedSectionId, searchQuery]
+    [projects, selectedProject, selectedSectionId, searchQuery, onAddHistoryNode]
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(initialGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialGraph.edges);
@@ -163,10 +181,16 @@ export function CanvasBoard({
   }, [setNodes]);
 
   useEffect(() => {
-    const graph = buildGraph(projects, selectedProject, selectedSectionId, searchQuery);
+    const graph = buildGraph(
+      projects,
+      selectedProject,
+      selectedSectionId,
+      searchQuery,
+      onAddHistoryNode
+    );
     setNodes((current) => mergeGraphNodes(graph.nodes, current, savedLayoutRef.current));
     setEdges(graph.edges);
-  }, [projects, selectedProject?.id, selectedSectionId, searchQuery, setEdges, setNodes]);
+  }, [projects, selectedProject?.id, selectedSectionId, searchQuery, onAddHistoryNode, setEdges, setNodes]);
 
   useEffect(() => {
     setNodes((current) =>
@@ -282,9 +306,9 @@ function PortalNode(props: NodeProps) {
           <ProjectCanvasNode project={data.project} />
         ) : section ? (
           data.kind === "historyItem" && data.historyItem ? (
-            <HistoryItemCanvasNode item={data.historyItem} />
+            <HistoryItemCanvasNode data={data} item={data.historyItem} />
           ) : (
-            <SectionCanvasNode section={section} />
+            <SectionCanvasNode data={data} section={section} />
           )
         ) : null}
         <Handle type="source" position={Position.Bottom} />
@@ -293,9 +317,42 @@ function PortalNode(props: NodeProps) {
   );
 }
 
-function HistoryItemCanvasNode({ item }: { item: HistoryNode }) {
+function HistoryItemCanvasNode({ data, item }: { data: CanvasNodeData; item: HistoryNode }) {
+  const canEdit = data.section?.source === "local";
   return (
     <>
+      {canEdit && data.section && (
+        <div className="canvas-node-actions nodrag nopan">
+          <button
+            type="button"
+            title="이 노드 위에 삽입"
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onAddHistoryNode?.(data.project.id, data.section!.id, {
+                itemId: item.id,
+                position: "before"
+              });
+            }}
+          >
+            <Plus size={14} />
+            위
+          </button>
+          <button
+            type="button"
+            title="이 노드 아래에 삽입"
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onAddHistoryNode?.(data.project.id, data.section!.id, {
+                itemId: item.id,
+                position: "after"
+              });
+            }}
+          >
+            <Plus size={14} />
+            아래
+          </button>
+        </div>
+      )}
       <div className="canvas-node-top">
         <span className="section-node-icon">
           <GitBranch size={15} />
@@ -336,9 +393,25 @@ function ProjectCanvasNode({ project }: { project: Project }) {
   );
 }
 
-function SectionCanvasNode({ section }: { section: SectionDefinition }) {
+function SectionCanvasNode({ data, section }: { data: CanvasNodeData; section: SectionDefinition }) {
+  const canAddHistory = section.type === "nodeHistory" && section.source === "local";
   return (
     <>
+      {canAddHistory && (
+        <div className="canvas-node-actions nodrag nopan">
+          <button
+            type="button"
+            title="최신 이력 노드 추가"
+            onClick={(event) => {
+              event.stopPropagation();
+              data.onAddHistoryNode?.(data.project.id, section.id);
+            }}
+          >
+            <Plus size={14} />
+            최신
+          </button>
+        </div>
+      )}
       <div className="canvas-node-top">
         <span className="section-node-icon">{sectionIcon(section)}</span>
         <span className="canvas-node-type">{section.type}</span>
@@ -418,7 +491,8 @@ function buildGraph(
   projects: Project[],
   selectedProject: Project | null,
   selectedSectionId: string,
-  searchQuery: string
+  searchQuery: string,
+  onAddHistoryNode?: CanvasNodeData["onAddHistoryNode"]
 ): { nodes: Node[]; edges: Edge[] } {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
@@ -439,6 +513,7 @@ function buildGraph(
         project,
         selected: project.id === selectedId,
         searchQuery,
+        onAddHistoryNode,
         searchText: [
           project.name,
           project.client,
@@ -477,6 +552,7 @@ function buildGraph(
           section,
           selected: section.id === selectedSectionId,
           searchQuery,
+          onAddHistoryNode,
           searchText: sectionSearchText(section)
         } satisfies CanvasNodeData
       });
@@ -504,6 +580,7 @@ function buildGraph(
               historyItem: item,
               selected: section.id === selectedSectionId,
               searchQuery,
+              onAddHistoryNode,
               historyIndex: itemIndex,
               historyTotal: historyItems.length,
               searchText: `${section.title} ${item.title} ${item.date} ${item.summary} ${item.body || ""} ${
