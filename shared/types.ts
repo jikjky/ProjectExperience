@@ -25,7 +25,15 @@ export type NotionPropertyType =
   | "email"
   | "phone_number"
   | "select"
-  | "status";
+  | "status"
+  | "multi_select"
+  | "people"
+  | "files"
+  | "formula"
+  | "created_time"
+  | "last_edited_time"
+  | "created_by"
+  | "last_edited_by";
 
 export interface LinkItem {
   id: string;
@@ -44,6 +52,12 @@ export interface TableColumn {
   required?: boolean;
   notionProperty?: string;
   notionType?: NotionPropertyType;
+  readOnly?: boolean;
+}
+
+export interface NotionSchemaResponse {
+  dataSourceId: string;
+  columns: TableColumn[];
 }
 
 export interface TableRow {

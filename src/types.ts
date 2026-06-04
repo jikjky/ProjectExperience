@@ -8,6 +8,7 @@ export type {
   LinkItem,
   LinkKind,
   NotionPropertyType,
+  NotionSchemaResponse,
   Project,
   ProjectStatus,
   SectionDefinition,

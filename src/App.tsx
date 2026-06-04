@@ -77,7 +77,15 @@ const notionTypeOptions: NotionPropertyType[] = [
   "email",
   "phone_number",
   "select",
-  "status"
+  "status",
+  "multi_select",
+  "people",
+  "files",
+  "formula",
+  "created_time",
+  "last_edited_time",
+  "created_by",
+  "last_edited_by"
 ];
 
 const emptyProject: Partial<Project> = {
@@ -449,6 +457,7 @@ function App() {
             }}
             submitLabel="추가"
             busy={busy}
+            password={password}
             onSubmit={(section) => void handleCreateSection(section)}
           />
         </Modal>
@@ -854,6 +863,7 @@ function SectionPanel({
             section={section}
             submitLabel="저장"
             busy={busy}
+            password={password}
             onSubmit={(patch) => {
               onSectionSave(patch);
               setSettingsOpen(false);
@@ -1420,11 +1430,13 @@ function SectionForm({
   section,
   submitLabel,
   busy,
+  password,
   onSubmit
 }: {
   section: Partial<SectionDefinition>;
   submitLabel: string;
   busy: boolean;
+  password: string;
   onSubmit: (section: Partial<SectionDefinition>) => void;
 }) {
   const [draft, setDraft] = useState({
@@ -1447,6 +1459,8 @@ function SectionForm({
   const [columns, setColumns] = useState<TableColumn[]>(
     section.columns?.length ? section.columns : defaultTableColumns
   );
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaError, setSchemaError] = useState("");
 
   const type = draft.type as SectionType;
   const source = type === "linkBoard" ? "local" : (draft.source as SectionSource);
@@ -1482,6 +1496,24 @@ function SectionForm({
             }
           : undefined
     });
+  }
+
+  async function loadNotionColumns() {
+    setSchemaLoading(true);
+    setSchemaError("");
+    try {
+      const schema = await api.getNotionSchema(password, draft.dataSourceId);
+      setColumns(schema.columns);
+      setDraft({
+        ...draft,
+        dataSourceId: schema.dataSourceId,
+        sortProperty: draft.sortProperty || schema.columns.find((column) => column.notionType === "title")?.notionProperty || ""
+      });
+    } catch (err) {
+      setSchemaError((err as Error).message);
+    } finally {
+      setSchemaLoading(false);
+    }
   }
 
   return (
@@ -1550,6 +1582,23 @@ function SectionForm({
               onChange={(event) => setDraft({ ...draft, dataSourceId: event.target.value })}
             />
           </Field>
+          {type === "table" && (
+            <Field label="Notion 컬럼" wide>
+              <div className="schema-loader-row">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={schemaLoading || busy || !draft.dataSourceId.trim()}
+                  onClick={() => void loadNotionColumns()}
+                >
+                  {schemaLoading ? <Loader2 className="spin" size={16} /> : <Database size={16} />}
+                  컬럼 자동 불러오기
+                </button>
+                <span>{columns.length}개 컬럼</span>
+              </div>
+              {schemaError && <InlineError text={schemaError} />}
+            </Field>
+          )}
           <Field label="정렬 속성">
             <input
               value={draft.sortProperty}
@@ -1697,6 +1746,14 @@ function ColumnEditor({
                   </option>
                 ))}
               </select>
+              <label className="compact-check">
+                <input
+                  type="checkbox"
+                  checked={Boolean(column.readOnly)}
+                  onChange={(event) => update(index, { readOnly: event.target.checked })}
+                />
+                읽기전용
+              </label>
             </>
           )}
           <IconButton title="컬럼 삭제" onClick={() => onChange(columns.filter((_, columnIndex) => columnIndex !== index))}>

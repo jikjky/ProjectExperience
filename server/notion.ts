@@ -1,4 +1,12 @@
-import type { HistoryNode, SectionDefinition, TableColumn, TableRow } from "../shared/types.js";
+import type {
+  HistoryNode,
+  NotionPropertyType,
+  NotionSchemaResponse,
+  SectionDefinition,
+  TableColumn,
+  TableColumnType,
+  TableRow
+} from "../shared/types.js";
 
 const notionBaseUrl = "https://api.notion.com/v1";
 
@@ -29,6 +37,16 @@ interface NotionPropertyValue {
   formula?: { type?: string; string?: string; number?: number; boolean?: boolean; date?: { start?: string } };
 }
 
+interface NotionDataSource {
+  id: string;
+  properties?: Record<string, { id?: string; type?: string; name?: string }>;
+}
+
+interface NotionDatabase {
+  id: string;
+  data_sources?: Array<{ id?: string; name?: string }>;
+}
+
 export class NotionIntegrationError extends Error {
   constructor(message: string, public readonly statusCode = 502) {
     super(message);
@@ -36,8 +54,16 @@ export class NotionIntegrationError extends Error {
   }
 }
 
+export async function retrieveNotionSchema(sourceId: string): Promise<NotionSchemaResponse> {
+  const dataSource = await retrieveDataSourceOrDatabase(sourceId);
+  return {
+    dataSourceId: dataSource.id,
+    columns: propertiesToColumns(dataSource.properties || {})
+  };
+}
+
 export async function queryNotionRows(section: SectionDefinition): Promise<TableRow[]> {
-  const dataSourceId = requireDataSourceId(section);
+  const dataSourceId = await resolveDataSourceId(section);
   const query: Record<string, unknown> = {
     page_size: section.notion?.pageSize || 50,
     result_type: "page"
@@ -62,7 +88,7 @@ export async function queryNotionRows(section: SectionDefinition): Promise<Table
 }
 
 export async function queryNotionHistoryNodes(section: SectionDefinition): Promise<HistoryNode[]> {
-  const dataSourceId = requireDataSourceId(section);
+  const dataSourceId = await resolveDataSourceId(section);
   const query: Record<string, unknown> = {
     page_size: section.notion?.pageSize || 50,
     result_type: "page"
@@ -94,7 +120,7 @@ export async function createNotionRow(
   section: SectionDefinition,
   values: Record<string, unknown>
 ): Promise<TableRow> {
-  const dataSourceId = requireDataSourceId(section);
+  const dataSourceId = await resolveDataSourceId(section);
   const payload = await notionRequest("/pages", {
     method: "POST",
     body: JSON.stringify({
@@ -162,6 +188,21 @@ async function notionRequest(path: string, init: RequestInit): Promise<Record<st
   return payload;
 }
 
+async function resolveDataSourceId(section: SectionDefinition): Promise<string> {
+  const sourceId = requireDataSourceId(section);
+  if (section.notion?.dataSourceId === sourceId && looksLikeUuid(sourceId)) {
+    try {
+      const dataSource = await notionRequest(`/data_sources/${sourceId}`, { method: "GET" });
+      return String(dataSource.id || sourceId);
+    } catch {
+      const dataSource = await retrieveDataSourceOrDatabase(sourceId);
+      return dataSource.id;
+    }
+  }
+
+  return sourceId;
+}
+
 function requireDataSourceId(section: SectionDefinition): string {
   const dataSourceId = section.notion?.dataSourceId?.trim();
   if (!dataSourceId) {
@@ -169,6 +210,31 @@ function requireDataSourceId(section: SectionDefinition): string {
   }
 
   return dataSourceId;
+}
+
+async function retrieveDataSourceOrDatabase(sourceId: string): Promise<NotionDataSource> {
+  const id = sourceId.trim();
+  if (!id) {
+    throw new NotionIntegrationError("Data Source ID가 비어 있습니다.", 400);
+  }
+
+  try {
+    return (await notionRequest(`/data_sources/${id}`, { method: "GET" })) as unknown as NotionDataSource;
+  } catch (error) {
+    if (!(error instanceof NotionIntegrationError) || error.statusCode !== 404) {
+      throw error;
+    }
+  }
+
+  const database = (await notionRequest(`/databases/${id}`, { method: "GET" })) as unknown as NotionDatabase;
+  const dataSourceId = database.data_sources?.find((source) => source.id)?.id;
+  if (!dataSourceId) {
+    throw new NotionIntegrationError("이 Database에서 Data Source를 찾을 수 없습니다.", 404);
+  }
+
+  return (await notionRequest(`/data_sources/${dataSourceId}`, {
+    method: "GET"
+  })) as unknown as NotionDataSource;
 }
 
 function pageToTableRow(page: NotionPage, columns: TableColumn[]): TableRow {
@@ -231,6 +297,10 @@ function valuesToNotionProperties(
 ): Record<string, unknown> {
   const properties: Record<string, unknown> = {};
   for (const column of columns) {
+    if (column.readOnly || isReadOnlyNotionType(column.notionType)) {
+      continue;
+    }
+
     const propertyName = notionPropertyName(column);
     const value = values[column.id];
     if (!propertyName) {
@@ -241,6 +311,27 @@ function valuesToNotionProperties(
   }
 
   return properties;
+}
+
+function propertiesToColumns(properties: Record<string, { id?: string; type?: string; name?: string }>): TableColumn[] {
+  return Object.entries(properties)
+    .map(([name, property], index) => {
+      const notionType = normalizeNotionPropertyType(property.type);
+      return {
+        id: columnIdFromName(name, index),
+        label: name,
+        type: tableColumnTypeFromNotionType(notionType),
+        required: notionType === "title",
+        notionProperty: name,
+        notionType,
+        readOnly: isReadOnlyNotionType(notionType)
+      } satisfies TableColumn;
+    })
+    .sort((left, right) => {
+      if (left.notionType === "title") return -1;
+      if (right.notionType === "title") return 1;
+      return left.label.localeCompare(right.label, "ko");
+    });
 }
 
 function notionPropertyName(column: TableColumn): string {
@@ -354,11 +445,86 @@ function valueToProperty(column: TableColumn, value: unknown): Record<string, un
       return { phone_number: text || null };
     case "select":
       return { select: text ? { name: text } : null };
+    case "multi_select":
+      return {
+        multi_select: text
+          ? text
+              .split(",")
+              .map((name) => name.trim())
+              .filter(Boolean)
+              .map((name) => ({ name }))
+          : []
+      };
     case "status":
       return { status: text ? { name: text } : null };
     default:
       return { rich_text: text ? [{ text: { content: text } }] : [] };
   }
+}
+
+function normalizeNotionPropertyType(type: string | undefined): NotionPropertyType {
+  const knownTypes: NotionPropertyType[] = [
+    "title",
+    "rich_text",
+    "number",
+    "date",
+    "checkbox",
+    "url",
+    "email",
+    "phone_number",
+    "select",
+    "status",
+    "multi_select",
+    "people",
+    "files",
+    "formula",
+    "created_time",
+    "last_edited_time",
+    "created_by",
+    "last_edited_by"
+  ];
+
+  return knownTypes.includes(type as NotionPropertyType)
+    ? (type as NotionPropertyType)
+    : "rich_text";
+}
+
+function tableColumnTypeFromNotionType(type: NotionPropertyType): TableColumnType {
+  if (type === "number") return "number";
+  if (type === "date" || type === "created_time" || type === "last_edited_time") return "date";
+  if (type === "checkbox") return "checkbox";
+  if (type === "url" || type === "email" || type === "phone_number") return "url";
+  if (type === "status") return "status";
+  if (type === "select" || type === "multi_select") return "select";
+  return "text";
+}
+
+function isReadOnlyNotionType(type: NotionPropertyType | undefined): boolean {
+  return (
+    type === "formula" ||
+    type === "files" ||
+    type === "people" ||
+    type === "created_time" ||
+    type === "last_edited_time" ||
+    type === "created_by" ||
+    type === "last_edited_by"
+  );
+}
+
+function columnIdFromName(name: string, index: number): string {
+  const normalized = name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9가-힣]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+
+  return normalized || `col${index + 1}`;
+}
+
+function looksLikeUuid(value: string): boolean {
+  return /^[0-9a-f]{32}$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value
+  );
 }
 
 function fallbackNotionType(column: TableColumn): TableColumn["notionType"] {

@@ -461,7 +461,8 @@ function normalizeColumns(columns: unknown): TableColumn[] | undefined {
         type: value.type || "text",
         required: Boolean(value.required),
         notionProperty: value.notionProperty || "",
-        notionType: value.notionType || "rich_text"
+        notionType: value.notionType || "rich_text",
+        readOnly: Boolean(value.readOnly)
       };
     });
 }

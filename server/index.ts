@@ -25,6 +25,7 @@ import {
   NotionIntegrationError,
   queryNotionHistoryNodes,
   queryNotionRows,
+  retrieveNotionSchema,
   updateNotionRow
 } from "./notion.js";
 
@@ -161,6 +162,15 @@ app.delete(
     }
   }
 );
+
+app.post("/api/notion/schema", requireEditPassword, async (request, response, next) => {
+  try {
+    const sourceId = String(request.body?.dataSourceId || request.body?.databaseId || "");
+    response.json(await retrieveNotionSchema(sourceId));
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.post(
   "/api/projects/:projectId/sections/:sectionId/sync",

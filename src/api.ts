@@ -1,4 +1,10 @@
-import type { CanvasLayoutState, Project, SectionDefinition, SectionItem } from "./types";
+import type {
+  CanvasLayoutState,
+  NotionSchemaResponse,
+  Project,
+  SectionDefinition,
+  SectionItem
+} from "./types";
 
 async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
@@ -66,6 +72,12 @@ export const api = {
     requestJson<void>(`/api/projects/${projectId}/sections/${sectionId}`, {
       method: "DELETE",
       headers: editHeaders(password)
+    }),
+  getNotionSchema: (password: string, dataSourceId: string) =>
+    requestJson<NotionSchemaResponse>("/api/notion/schema", {
+      method: "POST",
+      headers: editHeaders(password),
+      body: JSON.stringify({ dataSourceId })
     }),
   getItems: (projectId: string, sectionId: string) =>
     requestJson<SectionItem[]>(`/api/projects/${projectId}/sections/${sectionId}/items`),
