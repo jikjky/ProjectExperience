@@ -83,6 +83,7 @@ const notionTypeOptions: NotionPropertyType[] = [
   "multi_select",
   "people",
   "files",
+  "relation",
   "formula",
   "created_time",
   "last_edited_time",
@@ -2002,6 +2003,7 @@ function filterPlaceholder(type?: NotionPropertyType): string {
   if (type === "number") return "숫자";
   if (type === "date" || type === "created_time" || type === "last_edited_time") return "YYYY-MM-DD";
   if (type === "multi_select") return "옵션명";
+  if (type === "relation") return "연결된 페이지 ID";
   return "값";
 }
 

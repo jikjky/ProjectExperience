@@ -11,6 +11,7 @@ import type {
 } from "../shared/types.js";
 
 const notionBaseUrl = "https://api.notion.com/v1";
+const relationTitleCache = new Map<string, string>();
 
 interface NotionPage {
   id: string;
@@ -36,6 +37,7 @@ interface NotionPropertyValue {
   multi_select?: Array<{ name?: string }>;
   people?: Array<{ name?: string; id?: string }>;
   files?: Array<{ name?: string }>;
+  relation?: Array<{ id?: string }>;
   formula?: { type?: string; string?: string; number?: number; boolean?: boolean; date?: { start?: string } };
 }
 
@@ -91,7 +93,7 @@ export async function queryNotionRows(section: SectionDefinition): Promise<Table
   });
 
   const columns = section.columns || [];
-  return ((payload.results as NotionPage[]) || []).map((page) => pageToTableRow(page, columns));
+  return Promise.all(((payload.results as NotionPage[]) || []).map((page) => pageToTableRow(page, columns)));
 }
 
 export async function queryNotionHistoryNodes(section: SectionDefinition): Promise<HistoryNode[]> {
@@ -249,12 +251,12 @@ async function retrieveDataSourceOrDatabase(sourceId: string): Promise<NotionDat
   })) as unknown as NotionDataSource;
 }
 
-function pageToTableRow(page: NotionPage, columns: TableColumn[]): TableRow {
+async function pageToTableRow(page: NotionPage, columns: TableColumn[]): Promise<TableRow> {
   const values: Record<string, unknown> = {};
   for (const column of columns) {
     const propertyName = notionPropertyName(column);
     const property = page.properties?.[propertyName];
-    values[column.id] = propertyToValue(property);
+    values[column.id] = await propertyToDisplayValue(property);
   }
 
   return {
@@ -414,6 +416,10 @@ function notionFilterBody(
     return { [key]: { [emptyCapableOperator(operator)]: value } };
   }
 
+  if (key === "relation") {
+    return { relation: { [relationOperator(operator)]: value } };
+  }
+
   return { [key]: { [textOperator(operator)]: value } };
 }
 
@@ -428,6 +434,7 @@ function notionFilterKey(type: NotionPropertyType): string {
   if (type === "multi_select") return "multi_select";
   if (type === "people") return "people";
   if (type === "files") return "files";
+  if (type === "relation") return "relation";
   if (type === "created_by") return "created_by";
   if (type === "last_edited_by") return "last_edited_by";
   if (type === "url" || type === "email" || type === "phone_number") return type;
@@ -482,6 +489,14 @@ function multiSelectOperator(operator: NotionFilterOperator): string {
 }
 
 function emptyCapableOperator(operator: NotionFilterOperator): string {
+  if (operator === "does_not_contain") {
+    return "does_not_contain";
+  }
+
+  return "contains";
+}
+
+function relationOperator(operator: NotionFilterOperator): string {
   if (operator === "does_not_contain") {
     return "does_not_contain";
   }
@@ -559,6 +574,45 @@ function stringProperty(property?: NotionPropertyValue): string {
   return String(value);
 }
 
+async function propertyToDisplayValue(property?: NotionPropertyValue): Promise<unknown> {
+  if (property?.type !== "relation") {
+    return propertyToValue(property);
+  }
+
+  const relationIds = property.relation?.map((item) => item.id).filter(Boolean) as string[] | undefined;
+  if (!relationIds?.length) {
+    return "";
+  }
+
+  const titles = await Promise.all(
+    relationIds.map(async (pageId) => {
+      try {
+        return await retrievePageTitle(pageId);
+      } catch {
+        return pageId.slice(0, 8);
+      }
+    })
+  );
+
+  return titles.filter(Boolean).join(", ");
+}
+
+async function retrievePageTitle(pageId: string): Promise<string> {
+  const cached = relationTitleCache.get(pageId);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const page = (await notionRequest(`/pages/${pageId}`, { method: "GET" })) as unknown as NotionPage;
+  const properties = page.properties || {};
+  const titleProperty =
+    Object.values(properties).find((property) => property.type === "title") ||
+    Object.values(properties).find((property) => property.type === "rich_text");
+  const title = String(propertyToValue(titleProperty) || pageId.slice(0, 8));
+  relationTitleCache.set(pageId, title);
+  return title;
+}
+
 function propertyToValue(property?: NotionPropertyValue): unknown {
   if (!property?.type) {
     return "";
@@ -591,6 +645,8 @@ function propertyToValue(property?: NotionPropertyValue): unknown {
       return property.people?.map((item) => item.name || item.id).filter(Boolean).join(", ") || "";
     case "files":
       return property.files?.map((item) => item.name).filter(Boolean).join(", ") || "";
+    case "relation":
+      return property.relation?.map((item) => item.id).filter(Boolean).join(", ") || "";
     case "formula":
       return formulaToValue(property.formula);
     default:
@@ -653,6 +709,7 @@ function normalizeNotionPropertyType(type: string | undefined): NotionPropertyTy
     "multi_select",
     "people",
     "files",
+    "relation",
     "formula",
     "created_time",
     "last_edited_time",
@@ -672,6 +729,7 @@ function tableColumnTypeFromNotionType(type: NotionPropertyType): TableColumnTyp
   if (type === "url" || type === "email" || type === "phone_number") return "url";
   if (type === "status") return "status";
   if (type === "select" || type === "multi_select") return "select";
+  if (type === "relation") return "text";
   return "text";
 }
 
@@ -680,6 +738,7 @@ function isReadOnlyNotionType(type: NotionPropertyType | undefined): boolean {
     type === "formula" ||
     type === "files" ||
     type === "people" ||
+    type === "relation" ||
     type === "created_time" ||
     type === "last_edited_time" ||
     type === "created_by" ||

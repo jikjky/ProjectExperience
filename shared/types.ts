@@ -29,6 +29,7 @@ export type NotionPropertyType =
   | "multi_select"
   | "people"
   | "files"
+  | "relation"
   | "formula"
   | "created_time"
   | "last_edited_time"
