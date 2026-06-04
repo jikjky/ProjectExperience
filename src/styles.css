@@ -1139,9 +1139,21 @@ textarea {
   gap: 8px;
 }
 
+.filter-editor {
+  display: grid;
+  gap: 8px;
+}
+
 .column-row {
   display: grid;
   grid-template-columns: minmax(80px, 0.8fr) minmax(110px, 1fr) minmax(96px, 0.8fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(86px, auto) 38px;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.1fr) minmax(130px, 1fr) minmax(120px, 0.9fr) minmax(130px, 1fr) 38px;
   gap: 8px;
   align-items: center;
 }

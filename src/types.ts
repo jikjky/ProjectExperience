@@ -7,6 +7,8 @@ export type {
   HistoryNode,
   LinkItem,
   LinkKind,
+  NotionFilterOperator,
+  NotionFilterRule,
   NotionPropertyType,
   NotionSchemaResponse,
   Project,

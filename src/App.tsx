@@ -31,6 +31,8 @@ import type {
   HistoryNode,
   LinkItem,
   LinkKind,
+  NotionFilterOperator,
+  NotionFilterRule,
   NotionPropertyType,
   Project,
   ProjectStatus,
@@ -86,6 +88,21 @@ const notionTypeOptions: NotionPropertyType[] = [
   "last_edited_time",
   "created_by",
   "last_edited_by"
+];
+
+const notionFilterOperators: Array<{ value: NotionFilterOperator; label: string }> = [
+  { value: "equals", label: "같음" },
+  { value: "does_not_equal", label: "같지 않음" },
+  { value: "contains", label: "포함" },
+  { value: "does_not_contain", label: "포함 안 함" },
+  { value: "starts_with", label: "시작" },
+  { value: "ends_with", label: "끝" },
+  { value: "is_empty", label: "비어 있음" },
+  { value: "is_not_empty", label: "비어 있지 않음" },
+  { value: "greater_than", label: "초과" },
+  { value: "less_than", label: "미만" },
+  { value: "on_or_after", label: "이후/같음" },
+  { value: "on_or_before", label: "이전/같음" }
 ];
 
 const emptyProject: Partial<Project> = {
@@ -1550,6 +1567,7 @@ function SectionForm({
   const [columns, setColumns] = useState<TableColumn[]>(
     section.columns?.length ? section.columns : defaultTableColumns
   );
+  const [filters, setFilters] = useState<NotionFilterRule[]>(section.notion?.filters || []);
   const [schemaLoading, setSchemaLoading] = useState(false);
   const [schemaError, setSchemaError] = useState("");
 
@@ -1572,6 +1590,7 @@ function SectionForm({
               pageSize: Number(draft.pageSize) || 50,
               sortProperty: draft.sortProperty,
               sortDirection: draft.sortDirection as "ascending" | "descending",
+              filters,
               ...(type === "nodeHistory"
                 ? {
                     historyMapping: {
@@ -1595,6 +1614,17 @@ function SectionForm({
     try {
       const schema = await api.getNotionSchema(password, draft.dataSourceId);
       setColumns(schema.columns);
+      setFilters((current) =>
+        current.map((filter) => {
+          const column = schema.columns.find(
+            (candidate) =>
+              candidate.notionProperty === filter.property ||
+              candidate.label === filter.property ||
+              candidate.id === filter.property
+          );
+          return column ? { ...filter, property: column.notionProperty || column.label, type: column.notionType } : filter;
+        })
+      );
       setDraft({
         ...draft,
         dataSourceId: schema.dataSourceId,
@@ -1709,6 +1739,13 @@ function SectionForm({
               <option value="descending">descending</option>
               <option value="ascending">ascending</option>
             </select>
+          </Field>
+          <Field label="필터" wide>
+            <NotionFilterEditor
+              filters={filters}
+              columns={columns}
+              onChange={setFilters}
+            />
           </Field>
         </>
       )}
@@ -1858,6 +1895,114 @@ function ColumnEditor({
       </button>
     </div>
   );
+}
+
+function NotionFilterEditor({
+  filters,
+  columns,
+  onChange
+}: {
+  filters: NotionFilterRule[];
+  columns: TableColumn[];
+  onChange: (filters: NotionFilterRule[]) => void;
+}) {
+  function update(index: number, patch: Partial<NotionFilterRule>) {
+    onChange(filters.map((filter, filterIndex) => (filterIndex === index ? { ...filter, ...patch } : filter)));
+  }
+
+  function addFilter() {
+    const firstColumn = columns[0];
+    onChange([
+      ...filters,
+      {
+        id: `filter-${Date.now()}`,
+        property: firstColumn?.notionProperty || firstColumn?.label || "",
+        type: firstColumn?.notionType || "rich_text",
+        operator: "equals",
+        value: ""
+      }
+    ]);
+  }
+
+  function updateProperty(index: number, property: string) {
+    const column = columns.find(
+      (candidate) =>
+        candidate.notionProperty === property ||
+        candidate.label === property ||
+        candidate.id === property
+    );
+    update(index, {
+      property,
+      ...(column?.notionType ? { type: column.notionType } : {})
+    });
+  }
+
+  return (
+    <div className="filter-editor">
+      {filters.length === 0 && <span className="muted">필터 없음</span>}
+      {filters.map((filter, index) => {
+        const hideValue = filter.operator === "is_empty" || filter.operator === "is_not_empty";
+        return (
+          <div className="filter-row" key={filter.id || index}>
+            <input
+              list="notion-filter-properties"
+              value={filter.property}
+              placeholder="Notion 속성명"
+              onChange={(event) => updateProperty(index, event.target.value)}
+            />
+            <select
+              value={filter.type || "rich_text"}
+              onChange={(event) => update(index, { type: event.target.value as NotionPropertyType })}
+            >
+              {notionTypeOptions.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <select
+              value={filter.operator}
+              onChange={(event) => update(index, { operator: event.target.value as NotionFilterOperator })}
+            >
+              {notionFilterOperators.map((operator) => (
+                <option key={operator.value} value={operator.value}>
+                  {operator.label}
+                </option>
+              ))}
+            </select>
+            <input
+              value={filter.value || ""}
+              placeholder={filterPlaceholder(filter.type)}
+              disabled={hideValue}
+              onChange={(event) => update(index, { value: event.target.value })}
+            />
+            <IconButton title="필터 삭제" onClick={() => onChange(filters.filter((_, filterIndex) => filterIndex !== index))}>
+              <X size={16} />
+            </IconButton>
+          </div>
+        );
+      })}
+      <datalist id="notion-filter-properties">
+        {columns.map((column) => (
+          <option key={column.id} value={column.notionProperty || column.label}>
+            {column.label}
+          </option>
+        ))}
+      </datalist>
+      <button className="ghost-button" type="button" onClick={addFilter}>
+        <Plus size={16} />
+        필터 추가
+      </button>
+    </div>
+  );
+}
+
+function filterPlaceholder(type?: NotionPropertyType): string {
+  if (type === "checkbox") return "true 또는 false";
+  if (type === "number") return "숫자";
+  if (type === "date" || type === "created_time" || type === "last_edited_time") return "YYYY-MM-DD";
+  if (type === "multi_select") return "옵션명";
+  return "값";
 }
 
 function Field({

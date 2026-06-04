@@ -1,5 +1,7 @@
 import type {
   HistoryNode,
+  NotionFilterOperator,
+  NotionFilterRule,
   NotionPropertyType,
   NotionSchemaResponse,
   SectionDefinition,
@@ -78,6 +80,11 @@ export async function queryNotionRows(section: SectionDefinition): Promise<Table
     ];
   }
 
+  const filter = buildNotionFilter(section);
+  if (filter) {
+    query.filter = filter;
+  }
+
   const payload = await notionRequest(`/data_sources/${dataSourceId}/query`, {
     method: "POST",
     body: JSON.stringify(query)
@@ -101,6 +108,11 @@ export async function queryNotionHistoryNodes(section: SectionDefinition): Promi
         direction: section.notion.sortDirection || "descending"
       }
     ];
+  }
+
+  const filter = buildNotionFilter(section);
+  if (filter) {
+    query.filter = filter;
   }
 
   const payload = await notionRequest(`/data_sources/${dataSourceId}/query`, {
@@ -311,6 +323,170 @@ function valuesToNotionProperties(
   }
 
   return properties;
+}
+
+function buildNotionFilter(section: SectionDefinition): Record<string, unknown> | undefined {
+  const rules = section.notion?.filters || [];
+  const filters = rules
+    .map((rule) => ruleToNotionFilter(rule, section.columns || []))
+    .filter((filter): filter is Record<string, unknown> => Boolean(filter));
+
+  if (filters.length === 0) {
+    return undefined;
+  }
+
+  if (filters.length === 1) {
+    return filters[0];
+  }
+
+  return { and: filters };
+}
+
+function ruleToNotionFilter(
+  rule: NotionFilterRule,
+  columns: TableColumn[]
+): Record<string, unknown> | undefined {
+  const property = rule.property?.trim();
+  const operator = rule.operator;
+  if (!property || !operator) {
+    return undefined;
+  }
+
+  const column = columns.find(
+    (candidate) =>
+      candidate.notionProperty === property ||
+      candidate.label === property ||
+      candidate.id === property
+  );
+  const type = normalizeNotionPropertyType(rule.type || column?.notionType || "rich_text");
+  const value = rule.value ?? "";
+  const body = notionFilterBody(type, operator, value);
+  if (!body) {
+    return undefined;
+  }
+
+  return {
+    property,
+    ...body
+  };
+}
+
+function notionFilterBody(
+  type: NotionPropertyType,
+  operator: NotionFilterOperator,
+  value: string
+): Record<string, unknown> | undefined {
+  if (operator === "is_empty" || operator === "is_not_empty") {
+    return { [notionFilterKey(type)]: { [operator]: true } };
+  }
+
+  if (value === "") {
+    return undefined;
+  }
+
+  const key = notionFilterKey(type);
+  if (key === "number") {
+    const numberValue = Number(value);
+    if (!Number.isFinite(numberValue)) {
+      return undefined;
+    }
+
+    return { number: { [numberOperator(operator)]: numberValue } };
+  }
+
+  if (key === "checkbox") {
+    return { checkbox: { equals: value === "true" || value === "1" || value === "예" } };
+  }
+
+  if (key === "date") {
+    return { date: { [dateOperator(operator)]: value } };
+  }
+
+  if (key === "select" || key === "status") {
+    return { [key]: { [selectOperator(operator)]: value } };
+  }
+
+  if (key === "multi_select") {
+    return { multi_select: { [multiSelectOperator(operator)]: value } };
+  }
+
+  if (key === "people" || key === "files" || key === "created_by" || key === "last_edited_by") {
+    return { [key]: { [emptyCapableOperator(operator)]: value } };
+  }
+
+  return { [key]: { [textOperator(operator)]: value } };
+}
+
+function notionFilterKey(type: NotionPropertyType): string {
+  if (type === "title") return "title";
+  if (type === "rich_text") return "rich_text";
+  if (type === "number") return "number";
+  if (type === "checkbox") return "checkbox";
+  if (type === "date" || type === "created_time" || type === "last_edited_time") return "date";
+  if (type === "select") return "select";
+  if (type === "status") return "status";
+  if (type === "multi_select") return "multi_select";
+  if (type === "people") return "people";
+  if (type === "files") return "files";
+  if (type === "created_by") return "created_by";
+  if (type === "last_edited_by") return "last_edited_by";
+  if (type === "url" || type === "email" || type === "phone_number") return type;
+  return "rich_text";
+}
+
+function textOperator(operator: NotionFilterOperator): string {
+  if (
+    operator === "equals" ||
+    operator === "does_not_equal" ||
+    operator === "contains" ||
+    operator === "does_not_contain" ||
+    operator === "starts_with" ||
+    operator === "ends_with"
+  ) {
+    return operator;
+  }
+
+  return "contains";
+}
+
+function numberOperator(operator: NotionFilterOperator): string {
+  if (operator === "equals" || operator === "does_not_equal" || operator === "greater_than" || operator === "less_than") {
+    return operator;
+  }
+
+  return "equals";
+}
+
+function dateOperator(operator: NotionFilterOperator): string {
+  if (operator === "equals" || operator === "on_or_after" || operator === "on_or_before") {
+    return operator;
+  }
+
+  return "equals";
+}
+
+function selectOperator(operator: NotionFilterOperator): string {
+  if (operator === "equals" || operator === "does_not_equal") {
+    return operator;
+  }
+
+  return "equals";
+}
+
+function multiSelectOperator(operator: NotionFilterOperator): string {
+  if (operator === "does_not_contain") {
+    return operator;
+  }
+
+  return "contains";
+}
+
+function emptyCapableOperator(operator: NotionFilterOperator): string {
+  if (operator === "does_not_contain") {
+    return "does_not_contain";
+  }
+
+  return "contains";
 }
 
 function propertiesToColumns(properties: Record<string, { id?: string; type?: string; name?: string }>): TableColumn[] {

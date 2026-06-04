@@ -86,7 +86,30 @@ export interface NotionTableConfig {
   pageSize?: number;
   sortProperty?: string;
   sortDirection?: "ascending" | "descending";
+  filters?: NotionFilterRule[];
   historyMapping?: NotionHistoryMapping;
+}
+
+export type NotionFilterOperator =
+  | "equals"
+  | "does_not_equal"
+  | "contains"
+  | "does_not_contain"
+  | "starts_with"
+  | "ends_with"
+  | "is_empty"
+  | "is_not_empty"
+  | "greater_than"
+  | "less_than"
+  | "on_or_after"
+  | "on_or_before";
+
+export interface NotionFilterRule {
+  id: string;
+  property: string;
+  type?: NotionPropertyType;
+  operator: NotionFilterOperator;
+  value?: string;
 }
 
 export interface NotionHistoryMapping {
