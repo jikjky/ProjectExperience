@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-server/
+.env
+.vite/
+npm-debug.log*
+*.local
+dev-server.*.log
+artifacts/
+output/
+data/canvas-layout.json

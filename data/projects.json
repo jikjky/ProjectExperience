@@ -1,0 +1,106 @@
+{
+  "projects": [
+    {
+      "id": "sample-project",
+      "name": "샘플 프로젝트",
+      "client": "내부",
+      "line": "A-Line",
+      "equipment": "검사 장비",
+      "status": "inProgress",
+      "summary": "프로젝트 최신 상태, 문서 링크, 섹션별 이력을 모아보는 예시입니다.",
+      "tags": [
+        "sample",
+        "portal"
+      ],
+      "createdAt": "2026-06-04T00:00:00.000Z",
+      "updatedAt": "2026-06-04T03:50:56.005Z",
+      "sections": [
+        {
+          "id": "section-pc",
+          "title": "PC 정보",
+          "description": "컬럼을 자유롭게 바꿀 수 있는 로컬 테이블 섹션입니다.",
+          "type": "table",
+          "source": "local",
+          "order": 1,
+          "columns": [
+            {
+              "id": "name",
+              "label": "항목",
+              "type": "text",
+              "required": true
+            },
+            {
+              "id": "value",
+              "label": "값",
+              "type": "text"
+            },
+            {
+              "id": "note",
+              "label": "비고",
+              "type": "text"
+            }
+          ],
+          "items": [
+            {
+              "id": "row-os",
+              "values": {
+                "name": "OS",
+                "value": "Windows",
+                "note": "현장 PC 기준"
+              },
+              "createdAt": "2026-06-04T00:00:00.000Z",
+              "updatedAt": "2026-06-04T00:00:00.000Z"
+            }
+          ],
+          "createdAt": "2026-06-04T00:00:00.000Z",
+          "updatedAt": "2026-06-04T00:00:00.000Z"
+        },
+        {
+          "id": "section-history",
+          "title": "변경 이력",
+          "description": "최신 노드만 기본 표시하고 과거 이력은 접어서 볼 수 있습니다.",
+          "type": "nodeHistory",
+          "source": "local",
+          "order": 2,
+          "items": [
+            {
+              "id": "node-initial",
+              "title": "프로젝트 포털 초기 설계",
+              "date": "2026-06-04",
+              "summary": "섹션 타입 기반으로 프로젝트 상태를 관리하는 방향을 정리했습니다.",
+              "body": "노드 이력, 테이블, 링크 모음 섹션을 프로젝트마다 자유롭게 추가할 수 있습니다.",
+              "author": "Codex",
+              "notionUrl": "",
+              "links": [],
+              "createdAt": "2026-06-04T00:00:00.000Z",
+              "updatedAt": "2026-06-04T00:00:00.000Z"
+            }
+          ],
+          "createdAt": "2026-06-04T00:00:00.000Z",
+          "updatedAt": "2026-06-04T03:50:56.005Z"
+        },
+        {
+          "id": "section-links",
+          "title": "주요 링크",
+          "description": "노션, 검수시트, 구성도, 파일 링크를 모아두는 섹션입니다.",
+          "type": "linkBoard",
+          "source": "local",
+          "order": 3,
+          "items": [
+            {
+              "id": "link-notion",
+              "title": "노션 프로젝트 문서",
+              "url": "https://www.notion.so/",
+              "kind": "notion",
+              "description": "실제 프로젝트 노션 링크로 교체하세요.",
+              "createdAt": "2026-06-04T00:00:00.000Z",
+              "updatedAt": "2026-06-04T00:00:00.000Z"
+            }
+          ],
+          "createdAt": "2026-06-04T00:00:00.000Z",
+          "updatedAt": "2026-06-04T00:00:00.000Z"
+        }
+      ]
+    }
+  ]
+}
