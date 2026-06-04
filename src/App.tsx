@@ -860,6 +860,12 @@ function SectionPanel({
               "이력 노드가 추가되었습니다."
             )
           }
+          onSave={(itemId, item) =>
+            mutateItem(
+              () => api.updateItem(password, projectId, section.id, itemId, item).then(() => undefined),
+              "이력 노드가 저장되었습니다."
+            )
+          }
           onDelete={(itemId) =>
             mutateItem(
               () => api.deleteItem(password, projectId, section.id, itemId).then(() => undefined),
@@ -939,12 +945,14 @@ function NodeHistoryView({
   busy,
   readOnly,
   onAdd,
+  onSave,
   onDelete
 }: {
   items: HistoryNode[];
   busy: boolean;
   readOnly: boolean;
   onAdd: (item: Record<string, unknown>) => void;
+  onSave: (itemId: string, item: Record<string, unknown>) => void;
   onDelete: (itemId: string) => void;
 }) {
   const [showPast, setShowPast] = useState(false);
@@ -953,6 +961,7 @@ function NodeHistoryView({
     itemId: string;
     position: "before" | "after";
   } | null>(null);
+  const [editingItemId, setEditingItemId] = useState("");
   const latest = items[0];
   const past = items.slice(1);
 
@@ -987,6 +996,7 @@ function NodeHistoryView({
           item={item}
           latest={latestNode}
           readOnly={readOnly}
+          onEdit={() => setEditingItemId(item.id)}
           onInsertBefore={() => setInsertTarget({ itemId: item.id, position: "before" })}
           onInsertAfter={() => {
             setInsertTarget({ itemId: item.id, position: "after" });
@@ -1000,6 +1010,18 @@ function NodeHistoryView({
             }
           }}
         />
+        {editingItemId === item.id && (
+          <NodeForm
+            busy={busy}
+            initialItem={item}
+            submitLabel="수정 저장"
+            onSubmit={(patch) => {
+              onSave(item.id, patch);
+              setEditingItemId("");
+            }}
+            onCancel={() => setEditingItemId("")}
+          />
+        )}
         {insertTarget?.itemId === item.id && insertTarget.position === "after" && (
           <NodeForm
             busy={busy}
@@ -1061,6 +1083,7 @@ function HistoryNodeItem({
   item,
   latest,
   readOnly,
+  onEdit,
   onInsertBefore,
   onInsertAfter,
   onDelete
@@ -1068,6 +1091,7 @@ function HistoryNodeItem({
   item: HistoryNode;
   latest?: boolean;
   readOnly: boolean;
+  onEdit: () => void;
   onInsertBefore: () => void;
   onInsertAfter: () => void;
   onDelete: () => void;
@@ -1087,6 +1111,10 @@ function HistoryNodeItem({
         {latest && <span className="latest-badge">최신</span>}
         {!readOnly && (
           <div className="node-inline-actions">
+            <button type="button" onClick={onEdit}>
+              <Pencil size={14} />
+              수정
+            </button>
             <button type="button" onClick={onInsertBefore}>위에 삽입</button>
             <button type="button" onClick={onInsertAfter}>아래 삽입</button>
             <button type="button" className="danger-action" onClick={onDelete}>
@@ -1114,22 +1142,24 @@ function HistoryNodeItem({
 
 function NodeForm({
   busy,
+  initialItem,
   submitLabel = "추가",
   onSubmit,
   onCancel
 }: {
   busy: boolean;
+  initialItem?: HistoryNode;
   submitLabel?: string;
   onSubmit: (item: Record<string, unknown>) => void;
   onCancel?: () => void;
 }) {
   const [draft, setDraft] = useState({
-    title: "",
-    date: new Date().toISOString().slice(0, 10),
-    summary: "",
-    body: "",
-    author: "",
-    notionUrl: ""
+    title: initialItem?.title || "",
+    date: initialItem?.date || new Date().toISOString().slice(0, 10),
+    summary: initialItem?.summary || "",
+    body: initialItem?.body || "",
+    author: initialItem?.author || "",
+    notionUrl: initialItem?.notionUrl || ""
   });
 
   return (
@@ -1138,7 +1168,9 @@ function NodeForm({
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit(draft);
-        setDraft({ ...draft, title: "", summary: "", body: "", notionUrl: "" });
+        if (!initialItem) {
+          setDraft({ ...draft, title: "", summary: "", body: "", notionUrl: "" });
+        }
       }}
     >
       <input

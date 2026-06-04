@@ -28,7 +28,7 @@ import {
   Search,
   Table2
 } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import type {
   CanvasLayout,
@@ -104,11 +104,16 @@ export function CanvasBoard({
   const flowRef = useRef<ReactFlowInstance | null>(null);
   const serverLayoutLoadedRef = useRef(false);
   const saveTimerRef = useRef<number | undefined>(undefined);
+  const [notionTableItems, setNotionTableItems] = useState<Record<string, TableRow[]>>({});
+  const selectedProjectForCanvas = useMemo(
+    () => mergeNotionTableItems(selectedProject, notionTableItems),
+    [selectedProject, notionTableItems]
+  );
   const initialGraph = useMemo(
     () => {
       const graph = buildGraph(
         projects,
-        selectedProject,
+        selectedProjectForCanvas,
         selectedSectionId,
         searchQuery,
         onAddHistoryNode
@@ -118,7 +123,7 @@ export function CanvasBoard({
         edges: graph.edges
       };
     },
-    [projects, selectedProject, selectedSectionId, searchQuery, onAddHistoryNode]
+    [projects, selectedProjectForCanvas, selectedSectionId, searchQuery, onAddHistoryNode]
   );
   const [nodes, setNodes, onNodesChange] = useNodesState(initialGraph.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialGraph.edges);
@@ -181,16 +186,52 @@ export function CanvasBoard({
   }, [setNodes]);
 
   useEffect(() => {
+    let cancelled = false;
+    const notionSections =
+      selectedProject?.sections.filter(
+        (section) => section.type === "table" && section.source === "notion"
+      ) || [];
+
+    if (notionSections.length === 0 || !selectedProject) {
+      setNotionTableItems({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void Promise.all(
+      notionSections.map(async (section) => {
+        try {
+          const items = await api.getItems(selectedProject.id, section.id);
+          return [section.id, items as TableRow[]] as const;
+        } catch {
+          return [section.id, []] as const;
+        }
+      })
+    ).then((entries) => {
+      if (cancelled) {
+        return;
+      }
+
+      setNotionTableItems(Object.fromEntries(entries));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProject]);
+
+  useEffect(() => {
     const graph = buildGraph(
       projects,
-      selectedProject,
+      selectedProjectForCanvas,
       selectedSectionId,
       searchQuery,
       onAddHistoryNode
     );
     setNodes((current) => mergeGraphNodes(graph.nodes, current, savedLayoutRef.current));
     setEdges(graph.edges);
-  }, [projects, selectedProject?.id, selectedSectionId, searchQuery, onAddHistoryNode, setEdges, setNodes]);
+  }, [projects, selectedProjectForCanvas, selectedSectionId, searchQuery, onAddHistoryNode, setEdges, setNodes]);
 
   useEffect(() => {
     setNodes((current) =>
@@ -436,12 +477,7 @@ function TablePreview({ section }: { section: SectionDefinition }) {
           <span key={column.id}>{column.label}</span>
         ))}
       </div>
-      {section.source === "notion" ? (
-        <div className="node-table-row notion-row">
-          <Database size={14} />
-          <span>Notion Data Source</span>
-        </div>
-      ) : (
+      {rows.length > 0 ? (
         rows.slice(0, 3).map((row) => (
           <div className="node-table-row" key={row.id}>
             {columns.slice(0, 4).map((column) => (
@@ -449,9 +485,19 @@ function TablePreview({ section }: { section: SectionDefinition }) {
             ))}
           </div>
         ))
+      ) : section.source === "notion" ? (
+        <div className="node-table-row notion-row">
+          <Database size={14} />
+          <span>Notion Data Source</span>
+        </div>
+      ) : (
+        <div className="node-table-row notion-row">
+          <Table2 size={14} />
+          <span>행 없음</span>
+        </div>
       )}
       <small>
-        {columns.length} columns · {section.source === "notion" ? "API linked" : `${rows.length} rows`}
+        {columns.length} columns · {section.source === "notion" ? `${rows.length} notion rows` : `${rows.length} rows`}
       </small>
     </div>
   );
@@ -485,6 +531,24 @@ function LinkPreview({ section }: { section: SectionDefinition }) {
       <small>{links.length} links</small>
     </div>
   );
+}
+
+function mergeNotionTableItems(
+  project: Project | null,
+  notionTableItems: Record<string, TableRow[]>
+): Project | null {
+  if (!project) {
+    return null;
+  }
+
+  return {
+    ...project,
+    sections: project.sections.map((section) =>
+      section.type === "table" && section.source === "notion" && notionTableItems[section.id]
+        ? { ...section, items: notionTableItems[section.id] }
+        : section
+    )
+  };
 }
 
 function buildGraph(
