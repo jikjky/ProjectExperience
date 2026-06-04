@@ -379,7 +379,6 @@ function App() {
                 <aside className="canvas-inspector">
                   <InspectorHeader
                     project={selectedProject}
-                    selectedSection={selectedSection}
                     onEditProject={() => setProjectEditOpen(true)}
                     onAddSection={() => setSectionModalOpen(true)}
                     onClose={() => setRightPanelOpen(false)}
@@ -468,13 +467,11 @@ function App() {
 
 function InspectorHeader({
   project,
-  selectedSection,
   onEditProject,
   onAddSection,
   onClose
 }: {
   project: Project;
-  selectedSection?: SectionDefinition;
   onEditProject: () => void;
   onAddSection: () => void;
   onClose: () => void;
@@ -483,8 +480,14 @@ function InspectorHeader({
     <div className="inspector-header">
       <div>
         <span className={`status-pill ${project.status}`}>{statusLabels[project.status]}</span>
-        <h2>{selectedSection?.title || project.name}</h2>
-        <p>{selectedSection?.description || project.summary || "요약 없음"}</p>
+        <h2>{project.name}</h2>
+        <p>{project.summary || "요약 없음"}</p>
+        <div className="inspector-project-meta">
+          <span>{project.client || "고객 미지정"}</span>
+          <span>{project.line || "라인 미지정"}</span>
+          <span>{project.equipment || "장비 미지정"}</span>
+          <span>업데이트 {formatDate(project.updatedAt)}</span>
+        </div>
       </div>
       <div className="inspector-actions">
         <IconButton title="프로젝트 정보 수정" onClick={onEditProject}>

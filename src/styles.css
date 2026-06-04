@@ -603,6 +603,21 @@ button {
   color: var(--text-muted);
 }
 
+.inspector-project-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.inspector-project-meta span {
+  font-size: 12px;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  background: var(--surface-soft);
+  padding: 4px 8px;
+}
+
 .inspector-actions {
   display: flex;
   gap: 6px;
